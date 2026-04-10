@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Long Holiday — Shift Management</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --pri:#1565C0;--acc:#2196F3;
+  --bg:#EEF2F8;--sur:#FFF;--sur2:#F4F6FB;--bor:#DDE3EE;
+  --tx:#1A2340;--tx2:#5A6785;--tx3:#94A3B8;
+  --ok:#1B7F4E;--ok-bg:#E6F7EF;--wa:#B45309;--wa-bg:#FEF3C7;
+  --er:#C0392B;--er-bg:#FDEDEC;--in:#0277BD;--in-bg:#E1F0FB;
+  --sh:0 1px 4px rgba(0,0,0,.07);--r:8px;--rl:12px;
+}
+[data-dark]{
+  --bg:#0D1526;--sur:#152035;--sur2:#1C2A42;--bor:#263450;
+  --tx:#E6EDF5;--tx2:#8AA3BF;--tx3:#4A5F7A;--sh:0 1px 4px rgba(0,0,0,.3);
+}
+body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;font-size:14px;line-height:1.5;transition:background .2s,color .2s}
+input,select,textarea{font-family:inherit;font-size:13px;border:1.5px solid var(--bor);border-radius:var(--r);padding:7px 10px;width:100%;background:var(--sur);color:var(--tx);outline:none;transition:border .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(33,150,243,.12)}
+button{font-family:inherit;cursor:pointer;transition:all .15s;line-height:1.4}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:var(--bor);border-radius:3px}
+.fade{animation:fd .2s ease}
+@keyframes fd{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);border-left:1px solid var(--bor);border-top:1px solid var(--bor)}
+.cal-cell{border-right:1px solid var(--bor);border-bottom:1px solid var(--bor);min-height:86px;padding:4px 5px;background:var(--sur);cursor:pointer}
+.cal-day{font-size:12px;font-weight:700;text-align:right;margin-bottom:2px}
+.cal-ev{font-size:10px;padding:1px 4px;border-radius:3px;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+/* ═══════════════════════════════ CONSTANTS ══════════════════════════════ */
+const SK="jlh8_j",PK="jlh8_p",LK="jlh8_l",NK="jlh8_n";
+const PIN="2805";
+const LINES=["4N1 CH","4N1 SE1","4N1 SE2","4N1 ML","4N1 FT","4N15 unique","4N16 unique","3A9","4D5/4G6","Battery","Kit Supply","Repair"];
+const JTYPES=["Support MT","Construction","PM tools","PM Machine","5S","Other"];
+const STDJOBS=["Cleaning manifold EXH","Cleaning dirty tank","5S Washing M/C","Confirm machine","PM/5S cold test","Cleaning tank fipg"];
+const TIMES=["08.00-17.00","08.00-19.00","08.00-20.00"];
+const SHIFTS=["Shift A","Shift B","Shift A/B"];
+const MON=["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+const WDAY=["อา","จ","อ","พ","พฤ","ศ","ส"];
+const CY=new Date().getFullYear();
+const YEARS=Array.from({length:8},(_,i)=>CY-1+i);
+// Detailed 1-hour time slots 06:00–21:00
+const TSLOTS=[];
+for(let h=6;h<21;h++) TSLOTS.push(`${String(h).padStart(2,"0")}:00-${String(h+1).padStart(2,"0")}:00`);
+
+/* ═══════════════════════════════ UTILS ══════════════════════════════════ */
+const gid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+const ls=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}};
+const ss=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}};
+const fdt=iso=>{if(!iso)return"";const d=new Date(iso);return`${d.toLocaleDateString("th-TH")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`};
+const pad2=n=>String(n).padStart(2,"0");
+const tToMin=t=>{if(!t)return null;const p=t.split(":");if(p.length<2)return null;return+p[0]*60+(+p[1]||0)};
+
+/* ═══════════════════════════════ STYLE ATOMS ════════════════════════════ */
+const card={background:"var(--sur)",borderRadius:"var(--rl)",border:"1.5px solid var(--bor)",boxShadow:"var(--sh)"};
+const btn=(bg,c,b)=>({background:bg,color:c,border:`1.5px solid ${b||bg}`,borderRadius:"var(--r)",padding:"7px 16px",fontWeight:600,fontSize:13,fontFamily:"inherit",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5});
+const badge=(bg,c)=>({background:bg,color:c,borderRadius:5,padding:"2px 9px",fontSize:11,fontWeight:700,display:"inline-block",whiteSpace:"nowrap"});
+const TH={padding:"8px 11px",textAlign:"left",fontSize:11,fontWeight:700,color:"var(--tx2)",background:"var(--sur2)",borderBottom:"2px solid var(--bor)",whiteSpace:"nowrap"};
+const TD={padding:"7px 11px",fontSize:13,color:"var(--tx)",borderBottom:"1px solid var(--bor)",verticalAlign:"top"};
+const LBL={fontSize:12,color:"var(--tx2)",fontWeight:600,display:"block",marginBottom:4};
+
+/* ═══════════════════════════════ SECTION HEADER (defined OUTSIDE AddJob) ═ */
+function FormSec({title,children}){
+  return(
+    <div style={{marginBottom:18}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",textTransform:"uppercase",letterSpacing:".05em",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+        <span style={{display:"inline-block",width:3,height:13,background:"var(--acc)",borderRadius:2}}/>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ MODAL ══════════════════════════════════ */
+function Modal({title,onClose,children,w=460}){
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(5,15,35,.58)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,backdropFilter:"blur(3px)"}}>
+      <div className="fade" style={{...card,width:w,maxWidth:"96vw",maxHeight:"90vh",overflowY:"auto",padding:"22px 24px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <span style={{fontWeight:700,fontSize:16,color:"var(--tx)"}}>{title}</span>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,color:"var(--tx3)",cursor:"pointer"}}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Toast({msg}){
+  if(!msg)return null;
+  return <div style={{position:"fixed",top:66,right:20,background:"#163D28",color:"#D1FAE5",padding:"10px 20px",borderRadius:9,zIndex:9999,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.25)",animation:"fd .2s"}}>{msg}</div>;
+}
+
+/* ═══════════════════════════════ IBC TANK SVG (1000L) ═══════════════════ */
+function IbcTankIcon({size=36}){
+  return(
+    <svg width={size} height={size} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* outer cage frame */}
+      <rect x="4" y="6" width="28" height="24" rx="2" fill="#E8F4FD" stroke="#5B9BD5" strokeWidth="1.2"/>
+      {/* cage horizontal lines */}
+      {[12,18,24].map(y=><line key={y} x1="4" y1={y} x2="32" y2={y} stroke="#5B9BD5" strokeWidth="0.8" strokeDasharray="2,2"/>)}
+      {/* cage vertical lines */}
+      {[10,16,22,28].map(x=><line key={x} x1={x} y1="6" x2={x} y2="30" stroke="#5B9BD5" strokeWidth="0.8" strokeDasharray="2,2"/>)}
+      {/* inner tank body */}
+      <rect x="6" y="8" width="24" height="20" rx="1.5" fill="#BDE0F7" stroke="#3B82C4" strokeWidth="0.8"/>
+      {/* liquid fill */}
+      <rect x="6" y="18" width="24" height="10" rx="0" fill="#60ADE8" opacity="0.5"/>
+      {/* top cap */}
+      <rect x="14" y="3" width="8" height="4" rx="1" fill="#5B9BD5" stroke="#3B82C4" strokeWidth="0.8"/>
+      {/* red filler cap dot */}
+      <circle cx="18" cy="5" r="1.5" fill="#E53E3E"/>
+      {/* bottom pallet */}
+      <rect x="3" y="30" width="30" height="3" rx="1" fill="#8B7355" stroke="#6B5B3E" strokeWidth="0.8"/>
+      {[8,18,28].map(x=><rect key={x} x={x-1} y="30" width="2" height="3" fill="#6B5B3E"/>)}
+      {/* valve */}
+      <circle cx="18" cy="30" r="2" fill="#E53E3E" stroke="#B22222" strokeWidth="0.8"/>
+    </svg>
+  );
+}
+
+/* ═══════════════════════════════ SMALL TANK SVG (200L drum) ════════════ */
+function DrumIcon({size=36}){
+  return(
+    <svg width={size} height={size} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="18" cy="9" rx="10" ry="3.5" fill="#A8D8F0" stroke="#4A90D9" strokeWidth="1"/>
+      <rect x="8" y="9" width="20" height="20" fill="#C5E8F7" stroke="#4A90D9" strokeWidth="1"/>
+      <rect x="8" y="9" width="20" height="10" fill="#A8D8F0" stroke="#4A90D9" strokeWidth="0.5"/>
+      <ellipse cx="18" cy="29" rx="10" ry="3.5" fill="#88C8E8" stroke="#4A90D9" strokeWidth="1"/>
+      {[14,23].map(x=><line key={x} x1={x} y1="9" x2={x} y2="29" stroke="#4A90D9" strokeWidth="0.6" strokeDasharray="2,2"/>)}
+      <ellipse cx="18" cy="9" rx="3" ry="1.2" fill="#E53E3E" stroke="#B22222" strokeWidth="0.8"/>
+      <text x="18" y="22" textAnchor="middle" fontSize="6" fill="#1565C0" fontWeight="700" fontFamily="sans-serif">200L</text>
+    </svg>
+  );
+}
+
+/* ═══════════════════════════════ REFRESH ICON ═══════════════════════════ */
+function RefreshIcon(){
+  return(
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+      <path d="M4 12C4 7.58 7.58 4 12 4c2.73 0 5.14 1.33 6.65 3.4H16" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M20 12c0 4.42-3.58 8-8 8-2.73 0-5.14-1.33-6.65-3.4H8" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M16 4l2.65 3.4L15.5 8" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M8 20l-2.65-3.4L8.5 16" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+/* ═══════════════════════════════ SIDEBAR ════════════════════════════════ */
+function Sidebar({page,setPage,pCount,col,setCol}){
+  const nav=[
+    {id:"dash",ic:"⊞",lb:"Dashboard"},
+    {id:"add",ic:"＋",lb:"Add Job"},
+    {id:"jobs",ic:"≡",lb:"รายการงาน"},
+    {id:"cal",ic:"📅",lb:"ปฏิทิน"},
+    {id:"pend",ic:"◷",lb:"Pending Approval",badge:pCount},
+    {id:"logs",ic:"≔",lb:"Activity Logs"},
+  ];
+  return(
+    <div style={{width:col?62:220,minHeight:"100vh",background:"linear-gradient(180deg,#0D47A1,#1565C0)",position:"fixed",top:0,left:0,zIndex:200,transition:"width .2s",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{height:56,padding:"0 14px",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid rgba(255,255,255,.1)",flexShrink:0}}>
+        <div style={{width:32,height:32,background:"rgba(255,255,255,.2)",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,color:"#fff",flexShrink:0}}>JL</div>
+        {!col&&<div><div style={{fontWeight:700,fontSize:13.5,color:"#fff",lineHeight:1.3}}>Job Long Holiday</div><div style={{fontSize:10,color:"rgba(255,255,255,.5)"}}>Shift Management</div></div>}
+      </div>
+      <div style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
+        {nav.map(m=>{
+          const on=page===m.id;
+          return(
+            <button key={m.id} onClick={()=>setPage(m.id)}
+              style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 10px",borderRadius:8,border:"none",background:on?"rgba(255,255,255,.2)":"transparent",color:on?"#fff":"rgba(255,255,255,.6)",fontWeight:on?700:400,fontSize:13.5,marginBottom:3,justifyContent:col?"center":"flex-start",transition:"background .15s"}}
+              onMouseEnter={e=>{if(!on)e.currentTarget.style.background="rgba(255,255,255,.1)"}}
+              onMouseLeave={e=>{if(!on)e.currentTarget.style.background="transparent"}}>
+              <span style={{fontSize:17,flexShrink:0,lineHeight:1}}>{m.ic}</span>
+              {!col&&<span style={{whiteSpace:"nowrap",flex:1,textAlign:"left"}}>{m.lb}</span>}
+              {m.badge>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,fontSize:10,padding:"1px 6px",fontWeight:700,flexShrink:0}}>{m.badge}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <button onClick={()=>setCol(p=>!p)} style={{margin:"8px",padding:"7px",borderRadius:7,border:"1px solid rgba(255,255,255,.15)",background:"transparent",color:"rgba(255,255,255,.5)",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+        {col?"▶":"◀ ย่อเมนู"}
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ TOPBAR ═════════════════════════════════ */
+function Topbar({page,dark,setDark,sw,sm,setSm,sy,setSy}){
+  const titles={dash:"Dashboard",add:"Add Job",jobs:"รายการงาน",cal:"ปฏิทิน",pend:"Pending Approval",logs:"Activity Logs"};
+  return(
+    <div style={{position:"fixed",top:0,left:sw,right:0,height:56,background:"var(--sur)",borderBottom:"2px solid var(--bor)",zIndex:100,display:"flex",alignItems:"center",padding:"0 18px",gap:10,boxShadow:"var(--sh)",transition:"left .2s"}}>
+      <div style={{fontWeight:700,fontSize:17,color:"var(--pri)",flex:1}}>{titles[page]||page}</div>
+      <select value={sm} onChange={e=>setSm(+e.target.value)} style={{width:124}}>{MON.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+      <select value={sy} onChange={e=>setSy(+e.target.value)} style={{width:80}}>{YEARS.map(y=><option key={y} value={y}>{y}</option>)}</select>
+      <button onClick={()=>setDark(p=>!p)} style={{...btn("var(--sur2)","var(--tx2)","var(--bor)")}}>{dark?"☀️ Light":"🌙 Dark"}</button>
+      <button onClick={()=>window.location.reload()} style={{background:"linear-gradient(135deg,#2196F3,#1565C0)",border:"none",color:"#fff",borderRadius:10,padding:"8px 16px",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:7,boxShadow:"0 3px 10px rgba(33,150,243,.4)",cursor:"pointer"}}>
+        <RefreshIcon/> Refresh
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ TABS ═══════════════════════════════════ */
+function Tabs({tabs,cur,set}){
+  return(
+    <div style={{display:"flex",background:"var(--sur)",borderRadius:"var(--rl) var(--rl) 0 0",border:"1.5px solid var(--bor)",borderBottomWidth:0,overflow:"hidden"}}>
+      {tabs.map(t=>(
+        <button key={t.id} onClick={()=>set(t.id)} style={{padding:"10px 17px",border:"none",borderBottom:`2px solid ${cur===t.id?"var(--acc)":"transparent"}`,background:cur===t.id?"var(--in-bg)":"transparent",color:cur===t.id?"var(--acc)":"var(--tx2)",fontWeight:cur===t.id?700:500,fontSize:13,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>
+          {t.lb}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ STAT CARD ══════════════════════════════ */
+function SC({iconEl,icon,lb,val,c,bg}){
+  return(
+    <div style={{...card,padding:"14px 15px"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:7}}>
+        <span style={{fontSize:10,fontWeight:700,color:"var(--tx2)",textTransform:"uppercase",letterSpacing:".04em"}}>{lb}</span>
+        <span style={{width:36,height:36,borderRadius:9,background:bg||"var(--in-bg)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>
+          {iconEl||icon}
+        </span>
+      </div>
+      <div style={{fontSize:28,fontWeight:900,color:c||"var(--tx)",lineHeight:1}}>{val}</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ NOTICE BANNER ══════════════════════════ */
+function NoticeBanner({notices}){
+  const now=new Date();
+  const active=notices.filter(n=>{
+    if(!n.active)return false;
+    if(n.showFrom&&new Date(n.showFrom)>now)return false;
+    if(n.showTo&&new Date(n.showTo)<now)return false;
+    return true;
+  });
+  if(!active.length)return null;
+  return(
+    <div style={{marginBottom:12}}>
+      {active.map(n=>(
+        <div key={n.id} style={{background:n.color||"#FFF3CD",border:`1.5px solid ${n.borderColor||"#FFC107"}`,borderRadius:"var(--r)",padding:"10px 14px",marginBottom:6,display:"flex",gap:10,alignItems:"flex-start"}}>
+          <span style={{fontSize:18,flexShrink:0}}>{n.icon||"📢"}</span>
+          <div style={{flex:1}}>
+            {n.title&&<div style={{fontWeight:700,fontSize:13,color:n.textColor||"#856404",marginBottom:1}}>{n.title}</div>}
+            <div style={{fontSize:12,color:n.textColor||"#856404",whiteSpace:"pre-wrap"}}>{n.body}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NoticeManager({notices,setNotices,onClose}){
+  const [f,setF]=useState({id:"",title:"",body:"",icon:"📢",color:"#FFF3CD",borderColor:"#FFC107",textColor:"#856404",active:true,showFrom:"",showTo:""});
+  const [ed,setEd]=useState(null);
+  const sf=(k,v)=>setF(p=>({...p,[k]:v}));
+  const blank=()=>setF({id:"",title:"",body:"",icon:"📢",color:"#FFF3CD",borderColor:"#FFC107",textColor:"#856404",active:true,showFrom:"",showTo:""});
+  const startEdit=n=>{setF({...n});setEd(n.id);};
+  const cancel=()=>{blank();setEd(null);};
+  const save=()=>{
+    if(!f.body.trim()){alert("กรุณาใส่ข้อความ");return;}
+    if(ed){setNotices(p=>p.map(n=>n.id===ed?{...f,id:ed}:n));}
+    else{setNotices(p=>[...p,{...f,id:gid()}]);}
+    cancel();
+  };
+  return(
+    <Modal title="📢 จัดการประกาศ" onClose={onClose} w={520}>
+      <div style={{marginBottom:14}}>
+        {notices.map(n=>(
+          <div key={n.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:"var(--sur2)",borderRadius:"var(--r)",marginBottom:6,border:"1.5px solid var(--bor)"}}>
+            <span style={{fontSize:16}}>{n.icon}</span>
+            <div style={{flex:1}}><div style={{fontWeight:600,fontSize:13}}>{n.title||n.body.slice(0,30)}</div></div>
+            <span style={badge(n.active?"var(--ok-bg)":"var(--sur2)",n.active?"var(--ok)":"var(--tx3)")}>{n.active?"เปิด":"ปิด"}</span>
+            <button onClick={()=>startEdit(n)} style={{...btn("var(--sur)","var(--tx)","var(--bor)"),padding:"3px 10px",fontSize:12}}>แก้ไข</button>
+            <button onClick={()=>setNotices(p=>p.filter(x=>x.id!==n.id))} style={{...btn("var(--er-bg)","var(--er)","#F5B7B1"),padding:"3px 10px",fontSize:12}}>ลบ</button>
+          </div>
+        ))}
+      </div>
+      <div style={{borderTop:"1.5px solid var(--bor)",paddingTop:12}}>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:10}}>{ed?"แก้ไขประกาศ":"เพิ่มประกาศ"}</div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}><div style={{width:55}}><label style={LBL}>Icon</label><input value={f.icon} onChange={e=>sf("icon",e.target.value)} style={{textAlign:"center",fontSize:16}}/></div><div style={{flex:1}}><label style={LBL}>หัวข้อ</label><input value={f.title} onChange={e=>sf("title",e.target.value)} placeholder="หัวข้อ"/></div></div>
+        <div style={{marginBottom:8}}><label style={LBL}>ข้อความ *</label><textarea value={f.body} onChange={e=>sf("body",e.target.value)} placeholder="เนื้อหา..." style={{minHeight:55,resize:"vertical"}}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <div><label style={LBL}>แสดงตั้งแต่</label><input type="datetime-local" value={f.showFrom} onChange={e=>sf("showFrom",e.target.value)}/></div>
+          <div><label style={LBL}>แสดงถึง</label><input type="datetime-local" value={f.showTo} onChange={e=>sf("showTo",e.target.value)}/></div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+          <label style={{...LBL,marginBottom:0}}>สถานะ:</label>
+          <button onClick={()=>sf("active",!f.active)} style={{...btn(f.active?"var(--ok-bg)":"var(--sur2)",f.active?"var(--ok)":"var(--tx3)",f.active?"#A9DFBF":"var(--bor)"),padding:"4px 12px",fontSize:12}}>{f.active?"🟢 เปิด":"⚪ ปิด"}</button>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={save} style={{...btn("var(--acc)","#fff"),flex:1,justifyContent:"center",padding:"9px",fontWeight:700}}>{ed?"💾 บันทึก":"➕ เพิ่ม"}</button>
+          {ed&&<button onClick={cancel} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"9px 14px"}}>ยกเลิก</button>}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ═══════════════════════════════ MY JOBS STATUS PANEL ═══════════════════ */
+/* Used inside AddJob page (right column) */
+function MyJobsStatusPanel({pending,jobs,onEdit}){
+  const [exp,setExp]=useState(null);
+  const all=useMemo(()=>[...pending,...jobs.filter(j=>j.status==="Returned")].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)),[pending,jobs]);
+  if(!all.length)return(
+    <div style={{...card,padding:"20px",textAlign:"center",color:"var(--tx3)"}}>
+      <div style={{fontSize:28,marginBottom:8}}>📋</div>
+      <div style={{fontSize:12}}>ยังไม่มีงานที่ส่ง</div>
+    </div>
+  );
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {all.map(j=>{
+        const isRet=j.status==="Returned";
+        const jname=j.job==="Other"?j.jobOther:j.job;
+        const isX=exp===j.id;
+        return(
+          <div key={j.id} style={{border:`1.5px solid ${isRet?"var(--er)":"#F59E0B"}`,borderRadius:"var(--r)",background:"var(--sur)",overflow:"hidden"}}>
+            <div style={{padding:"10px 12px",display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}} onClick={()=>setExp(isX?null:j.id)}>
+              <div style={{width:36,height:36,borderRadius:8,background:isRet?"var(--er-bg)":"var(--wa-bg)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>
+                {isRet?"↩":"⏳"}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{jname}</div>
+                <div style={{fontSize:11,color:"var(--tx2)"}}>{j.line} · {j.shift}</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,flexShrink:0}}>
+                <span style={badge(isRet?"var(--er-bg)":"var(--wa-bg)",isRet?"var(--er)":"var(--wa)")}>{isRet?"↩ Returned":"⏳ Waiting"}</span>
+                <span style={{fontSize:10,color:"var(--tx3)"}}>{fdt(j.createdAt)}</span>
+                <span style={{fontSize:13,color:"var(--tx3)"}}>{isX?"▲":"▼"}</span>
+              </div>
+            </div>
+            {isX&&(
+              <div style={{borderTop:"1px solid var(--bor)",padding:"10px 12px",background:"var(--sur2)"}}>
+                {isRet&&j.returnRemark&&<div style={{background:"var(--er-bg)",border:"1px solid #F5B7B1",borderRadius:6,padding:"7px 10px",marginBottom:8,fontSize:12,color:"var(--er)"}}>↩ <b>Return:</b> {j.returnRemark}</div>}
+                <div style={{fontSize:11,color:"var(--tx2)",marginBottom:6}}>
+                  <span style={{marginRight:10}}>📍 {j.line}</span>
+                  <span style={{marginRight:10}}>🔄 {j.shift}</span>
+                  <span>⏰ {j.timeSlot}</span>
+                </div>
+                {(j.dates||[]).map((d,i)=><span key={i} style={{...badge("var(--sur)","var(--tx2)"),marginRight:4,marginBottom:3,border:"1px solid var(--bor)",display:"inline-block"}}>{d.date} · {d.manpower} คน</span>)}
+                <div style={{marginTop:8}}>
+                  <button onClick={()=>onEdit(j.id)} style={{...btn("var(--acc)","#fff"),fontSize:12,padding:"6px 14px"}}>✏️ แก้ไข &amp; ขอ Approve ใหม่</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ ADD JOB PAGE ═══════════════════════════ */
+/* KEY FIX: FormSec is defined OUTSIDE this component, preventing remount on every keystroke */
+function AddJobPage({onAdd,initialData,onCancel,pending,jobs,onEditPending}){
+  const ini=useMemo(()=>initialData||{job:"",jobOther:"",jobType:"",jobTypeOther:"",line:"",shift:"",timeSlot:"",tankCount:"",tankSize:"200L",supervisorName:"",supervisorPhone:"",notes:""},[initialData]);
+
+  // Use individual state for each field to prevent scroll-jump
+  const [job,setJob]=useState(ini.job||"");
+  const [jobOther,setJobOther]=useState(ini.jobOther||"");
+  const [jobType,setJobType]=useState(ini.jobType||"");
+  const [jobTypeOther,setJobTypeOther]=useState(ini.jobTypeOther||"");
+  const [line,setLine]=useState(ini.line||"");
+  const [shift,setShift]=useState(ini.shift||"");
+  const [timeSlot,setTimeSlot]=useState(ini.timeSlot||"");
+  const [tankCount,setTankCount]=useState(ini.tankCount||"");
+  const [tankSize,setTankSize]=useState(ini.tankSize||"200L");
+  const [supName,setSupName]=useState(ini.supervisorName||"");
+  const [supPhone,setSupPhone]=useState(ini.supervisorPhone||"");
+  const [notes,setNotes]=useState(ini.notes||"");
+  const [dates,setDates]=useState(()=>initialData?.dates||[{date:"",manpower:""}]);
+  const [steps,setSteps]=useState(()=>initialData?.steps||[]);
+  const [files,setFiles]=useState(()=>initialData?.files||[]);
+  const fRef=useRef();
+
+  const hFile=e=>{Array.from(e.target.files).forEach(f=>{const r=new FileReader();r.onload=ev=>setFiles(p=>[...p,{name:f.name,data:ev.target.result,id:gid()}]);r.readAsDataURL(f);});e.target.value="";};
+
+  const submit=()=>{
+    if(!job||!line||!shift){alert("กรุณากรอก: งาน / Line / Shift");return;}
+    if(!dates.some(d=>d.date)){alert("กรุณาเลือกวันที่");return;}
+    const data={job,jobOther,jobType,jobTypeOther,line,shift,timeSlot,tankCount,tankSize,supervisorName:supName,supervisorPhone:supPhone,notes,dates:dates.filter(d=>d.date),steps,files};
+    onAdd(data);
+    if(!initialData){
+      setJob("");setJobOther("");setJobType("");setJobTypeOther("");setLine("");setShift("");setTimeSlot("");setTankCount("");setTankSize("200L");setSupName("");setSupPhone("");setNotes("");setDates([{date:"",manpower:""}]);setSteps([]);setFiles([]);
+    }
+  };
+
+  return(
+    <div className="fade" style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:16,alignItems:"start"}}>
+      {/* LEFT: Form */}
+      <div style={{...card,padding:"20px 22px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <span style={{width:34,height:34,background:"var(--acc)",borderRadius:8,display:"inline-flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,flexShrink:0}}>＋</span>
+          <span style={{fontWeight:700,fontSize:16,color:"var(--pri)"}}>{initialData?"แก้ไขและขอ Approve ใหม่":"เพิ่มรายการงานใหม่"}</span>
+        </div>
+
+        <FormSec title="เลือกงาน (Job Standard)">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7,marginBottom:8}}>
+            {STDJOBS.map(j=>(
+              <button key={j} type="button" onClick={()=>setJob(j)} style={{padding:"8px 5px",borderRadius:"var(--r)",border:`2px solid ${job===j?"var(--acc)":"var(--bor)"}`,background:job===j?"var(--in-bg)":"var(--sur2)",color:job===j?"var(--acc)":"var(--tx)",fontSize:12,fontWeight:job===j?700:400,cursor:"pointer",textAlign:"center",lineHeight:1.4,transition:"all .1s"}}>
+                {j}
+              </button>
+            ))}
+            <button type="button" onClick={()=>setJob("Other")} style={{padding:"8px 5px",borderRadius:"var(--r)",border:`2px solid ${job==="Other"?"var(--acc)":"var(--bor)"}`,background:job==="Other"?"var(--in-bg)":"var(--sur2)",color:job==="Other"?"var(--acc)":"var(--tx)",fontSize:12,fontWeight:job==="Other"?700:400,cursor:"pointer",transition:"all .1s"}}>
+              Jobs Other
+            </button>
+          </div>
+          {job==="Other"&&<input value={jobOther} onChange={e=>setJobOther(e.target.value)} placeholder="ระบุชื่องาน"/>}
+          {job==="5S Washing M/C"&&<div style={{display:"flex",gap:8,marginTop:8}}>
+            <input type="number" value={tankCount} onChange={e=>setTankCount(e.target.value)} placeholder="จำนวน Tank" style={{flex:1}}/>
+            <select value={tankSize} onChange={e=>setTankSize(e.target.value)} style={{flex:1}}><option value="200L">200L</option><option value="1000L">1000L</option></select>
+          </div>}
+        </FormSec>
+
+        <FormSec title="ประเภทงาน">
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {JTYPES.map(t=>(
+              <button key={t} type="button" onClick={()=>setJobType(t)} style={{padding:"5px 12px",borderRadius:"var(--r)",border:`2px solid ${jobType===t?"var(--acc)":"var(--bor)"}`,background:jobType===t?"var(--in-bg)":"var(--sur2)",color:jobType===t?"var(--acc)":"var(--tx)",fontSize:12,fontWeight:jobType===t?700:400,cursor:"pointer",transition:"all .1s"}}>
+                {t}
+              </button>
+            ))}
+          </div>
+          {jobType==="Other"&&<input value={jobTypeOther} onChange={e=>setJobTypeOther(e.target.value)} placeholder="ระบุประเภท" style={{marginTop:8}}/>}
+        </FormSec>
+
+        <FormSec title="Line / Shift / เวลา">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+            <div><label style={LBL}>Line *</label><select value={line} onChange={e=>setLine(e.target.value)}><option value="">เลือก Line</option>{LINES.map(l=><option key={l} value={l}>{l}</option>)}</select></div>
+            <div><label style={LBL}>Shift *</label><select value={shift} onChange={e=>setShift(e.target.value)}><option value="">เลือก Shift</option>{SHIFTS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+            <div><label style={LBL}>ช่วงเวลา</label><select value={timeSlot} onChange={e=>setTimeSlot(e.target.value)}><option value="">เลือก</option>{TIMES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+          </div>
+        </FormSec>
+
+        <FormSec title="วันที่ทำงาน และ Manpower">
+          {dates.map((d,i)=>(
+            <div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+              <input type="date" value={d.date} onChange={e=>setDates(p=>p.map((x,j)=>j===i?{...x,date:e.target.value}:x))} style={{flex:2}}/>
+              <input type="number" value={d.manpower} onChange={e=>setDates(p=>p.map((x,j)=>j===i?{...x,manpower:e.target.value}:x))} placeholder="จำนวนคน" style={{flex:1}}/>
+              {dates.length>1&&<button type="button" onClick={()=>setDates(p=>p.filter((_,j)=>j!==i))} style={{background:"var(--er-bg)",color:"var(--er)",border:"1.5px solid #F5B7B1",borderRadius:"var(--r)",padding:"6px 10px",fontSize:12,flexShrink:0}}>✕</button>}
+            </div>
+          ))}
+          <button type="button" onClick={()=>setDates(p=>[...p,{date:"",manpower:""}])} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),fontSize:12}}>+ เพิ่มวัน</button>
+        </FormSec>
+
+        <FormSec title="ผู้ควบคุม">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div><label style={LBL}>ชื่อ</label><input value={supName} onChange={e=>setSupName(e.target.value)} placeholder="ชื่อผู้ควบคุม"/></div>
+            <div><label style={LBL}>เบอร์ติดต่อ</label><input value={supPhone} onChange={e=>setSupPhone(e.target.value)} placeholder="เบอร์โทร"/></div>
+          </div>
+        </FormSec>
+
+        <FormSec title="รายละเอียดขั้นตอนการทำงาน">
+          {steps.map((s,i)=>(
+            <div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+              <input value={s.desc} onChange={e=>setSteps(p=>p.map((x,j)=>j===i?{...x,desc:e.target.value}:x))} placeholder={`ขั้นตอนที่ ${i+1}`} style={{flex:3}}/>
+              <input value={s.startTime||""} onChange={e=>setSteps(p=>p.map((x,j)=>j===i?{...x,startTime:e.target.value}:x))} placeholder="เริ่ม เช่น 08:00" style={{flex:1}}/>
+              <input value={s.endTime||""} onChange={e=>setSteps(p=>p.map((x,j)=>j===i?{...x,endTime:e.target.value}:x))} placeholder="ถึง เช่น 10:00" style={{flex:1}}/>
+              <button type="button" onClick={()=>setSteps(p=>p.filter((_,j)=>j!==i))} style={{background:"var(--er-bg)",color:"var(--er)",border:"1.5px solid #F5B7B1",borderRadius:"var(--r)",padding:"6px 9px",fontSize:12,flexShrink:0}}>✕</button>
+            </div>
+          ))}
+          <button type="button" onClick={()=>setSteps(p=>[...p,{desc:"",startTime:"",endTime:""}])} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),fontSize:12}}>+ เพิ่มขั้นตอน</button>
+        </FormSec>
+
+        <FormSec title="หมายเหตุ">
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="รายละเอียดเพิ่มเติม..." style={{minHeight:60,resize:"vertical"}}/>
+        </FormSec>
+
+        <FormSec title="📎 Attach Files">
+          <input type="file" ref={fRef} multiple onChange={hFile} style={{display:"none"}}/>
+          <button type="button" onClick={()=>fRef.current.click()} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),fontSize:12}}>📤 เลือกไฟล์</button>
+          {files.map(f=>(
+            <div key={f.id} style={{display:"flex",alignItems:"center",gap:7,padding:"5px 0",borderBottom:"1px solid var(--bor)",marginTop:5}}>
+              <span style={{flex:1,fontSize:12}}>📄 {f.name}</span>
+              <a href={f.data} download={f.name} style={{fontSize:11,color:"var(--acc)",textDecoration:"none"}}>⬇</a>
+              <button type="button" onClick={()=>setFiles(p=>p.filter(x=>x.id!==f.id))} style={{background:"var(--er-bg)",color:"var(--er)",border:"none",borderRadius:5,padding:"3px 7px",fontSize:11}}>🗑</button>
+            </div>
+          ))}
+        </FormSec>
+
+        <div style={{display:"flex",gap:8}}>
+          <button type="button" onClick={submit} style={{...btn("var(--acc)","#fff"),flex:1,justifyContent:"center",padding:"11px",fontSize:14,fontWeight:700,boxShadow:"0 4px 14px rgba(33,150,243,.28)"}}>
+            ✅ {initialData?"ส่งขอ Approve ใหม่":"ส่งคำขอ (Waiting Review)"}
+          </button>
+          {onCancel&&<button type="button" onClick={onCancel} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"11px 16px"}}>ยกเลิก</button>}
+        </div>
+      </div>
+
+      {/* RIGHT: Status panel */}
+      <div>
+        <div style={{fontWeight:700,fontSize:14,color:"var(--tx)",marginBottom:10,display:"flex",alignItems:"center",gap:7}}>
+          <span style={{fontSize:16}}>📌</span> สถานะงานที่ส่ง
+          <span style={badge("var(--wa-bg)","var(--wa)")}>{[...pending,...jobs.filter(j=>j.status==="Returned")].length}</span>
+        </div>
+        <MyJobsStatusPanel pending={pending} jobs={jobs} onEdit={onEditPending}/>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ STEP TIME TABLE ════════════════════════ */
+function StepTimeTable({steps}){
+  if(!steps||!steps.length)return null;
+  // filter only slots from 06:00 to 21:00 that have any step overlapping
+  const sMin=steps.reduce((m,s)=>{const t=tToMin(s.startTime);return t!==null&&t<m?t:m},Infinity);
+  const eMax=steps.reduce((m,s)=>{const t=tToMin(s.endTime);return t!==null&&t>m?t:m},0);
+  if(sMin===Infinity)return(
+    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+      <thead><tr style={{background:"var(--pri)"}}><th style={{...TH,color:"#fff",background:"var(--pri)"}}>ขั้นตอน</th><th style={{...TH,color:"#fff",background:"var(--pri)"}}>เริ่ม</th><th style={{...TH,color:"#fff",background:"var(--pri)"}}>สิ้นสุด</th></tr></thead>
+      <tbody>{steps.map((s,i)=><tr key={i}><td style={TD}>{s.desc}</td><td style={TD}>{s.startTime}</td><td style={TD}>{s.endTime}</td></tr>)}</tbody>
+    </table>
+  );
+  // Show only relevant hour slots
+  const startH=Math.max(6,Math.floor(sMin/60));
+  const endH=Math.min(21,Math.ceil(eMax/60));
+  const slots=[];
+  for(let h=startH;h<endH;h++) slots.push(`${pad2(h)}:00-${pad2(h+1)}:00`);
+  if(!slots.length)return null;
+  return(
+    <div style={{overflowX:"auto"}}>
+      <div style={{fontWeight:700,fontSize:12,color:"var(--tx)",marginBottom:8}}>ตารางขั้นตอนการทำงาน</div>
+      <table style={{borderCollapse:"collapse",fontSize:11,minWidth:Math.max(400,slots.length*85+240)}}>
+        <thead>
+          <tr>
+            <th style={{...TH,background:"var(--pri)",color:"#fff",border:"1px solid rgba(255,255,255,.2)",minWidth:180,position:"sticky",left:0,zIndex:2}}>ขั้นตอนการดำเนินกิจกรรม</th>
+            <th style={{...TH,background:"var(--pri)",color:"#fff",border:"1px solid rgba(255,255,255,.2)",width:55,textAlign:"center"}}>Plan</th>
+            {slots.map(t=><th key={t} style={{...TH,background:"var(--pri)",color:"#fff",border:"1px solid rgba(255,255,255,.2)",width:80,textAlign:"center",fontSize:10}}>{t}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {steps.map((s,i)=>{
+            const sM=tToMin(s.startTime);
+            const eM=tToMin(s.endTime);
+            return(
+              <tr key={i} style={{background:i%2===0?"var(--sur)":"var(--sur2)"}}>
+                <td style={{...TD,fontWeight:500,fontSize:12,position:"sticky",left:0,background:i%2===0?"var(--sur)":"var(--sur2)",zIndex:1}}>{s.desc}</td>
+                <td style={{...TD,fontSize:10,textAlign:"center",color:"var(--tx2)"}}>แผน</td>
+                {slots.map((t,ti)=>{
+                  const[hs,ms]=t.split("-")[0].split(":").map(Number);
+                  const[he,me]=t.split("-")[1].split(":").map(Number);
+                  const slotS=hs*60+ms;const slotE=he*60+me;
+                  const hasBar=sM!==null&&eM!==null&&sM<slotE&&eM>slotS;
+                  return(
+                    <td key={ti} style={{...TD,padding:"4px 3px",textAlign:"center"}}>
+                      {hasBar&&<div style={{background:"var(--pri)",borderRadius:4,height:18,display:"flex",alignItems:"center",justifyContent:"center",margin:"1px 2px"}}>
+                        <svg width="12" height="12" viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11" fill="white"/></svg>
+                      </div>}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ JOB DETAIL MODAL ═══════════════════════ */
+function JobDetailModal({job,onClose}){
+  const jname=job.job==="Other"?job.jobOther:job.job;
+  return(
+    <Modal title={`📋 ${jname}`} onClose={onClose} w={700}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+        <span style={badge("var(--in-bg)","var(--acc)")}>{job.line}</span>
+        <span style={badge("var(--sur2)","var(--tx2)")}>{job.shift}</span>
+        <span style={badge("var(--sur2)","var(--tx2)")}>{job.timeSlot}</span>
+        <span style={badge("var(--wa-bg)","var(--wa)")}>⏳ Waiting Review</span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:6,textTransform:"uppercase"}}>Manpower รายวัน</div>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr><th style={TH}>วันที่</th><th style={TH}>Manpower</th></tr></thead>
+            <tbody>{(job.dates||[]).map((d,i)=><tr key={i}><td style={TD}>{d.date}</td><td style={TD}><b>{d.manpower}</b> คน</td></tr>)}</tbody>
+          </table>
+        </div>
+        <div>
+          {job.supervisorName&&<div style={{fontSize:12,color:"var(--tx2)",marginBottom:5}}>👤 <b>{job.supervisorName}</b> {job.supervisorPhone&&`(${job.supervisorPhone})`}</div>}
+          {job.jobType&&<div style={{fontSize:12,color:"var(--tx2)",marginBottom:5}}>📂 {job.jobType}</div>}
+          {job.notes&&<div style={{fontSize:12,color:"var(--tx2)",marginBottom:5}}>📝 {job.notes}</div>}
+          <div style={{fontSize:10,color:"var(--tx3)"}}>ส่งเมื่อ {fdt(job.createdAt)}</div>
+          {job.editedAt&&<div style={{fontSize:10,color:"var(--in)"}}>✏️ แก้ไขล่าสุด {fdt(job.editedAt)}</div>}
+        </div>
+      </div>
+      <StepTimeTable steps={job.steps}/>
+      {job.files&&job.files.length>0&&<div style={{marginTop:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>📎 ไฟล์แนบ</div>
+        {job.files.map(f=><a key={f.id} href={f.data} download={f.name} style={{display:"inline-block",marginRight:9,fontSize:12,color:"var(--acc)"}}>📎 {f.name}</a>)}
+      </div>}
+    </Modal>
+  );
+}
+
+/* ═══════════════════════════════ DASHBOARD ══════════════════════════════ */
+function DashPage({jobs,pending,sm,sy,notices,setNotices,onEditPending}){
+  const [tab,setTab]=useState("overview");
+  const [mode,setMode]=useState("month");
+  const [lf,setLf]=useState("all");
+  const [showNM,setShowNM]=useState(false);
+
+  const now=new Date();
+  const ws=new Date(now);ws.setDate(now.getDate()-now.getDay());
+  const we=new Date(ws);we.setDate(ws.getDate()+6);
+  const inM=j=>j.dates&&j.dates.some(d=>{const dt=new Date(d.date);return dt.getFullYear()===sy&&dt.getMonth()===sm});
+  const inW=j=>j.dates&&j.dates.some(d=>{const dt=new Date(d.date);return dt>=ws&&dt<=we});
+  const okFn=mode==="month"?inM:inW;
+  const apr=jobs.filter(j=>j.status==="Approved");
+  const mj=apr.filter(okFn);
+  const mp=pending.filter(inM);
+  const mr=jobs.filter(j=>j.status==="Returned"&&inM(j));
+  const totalMP=mj.reduce((s,j)=>(j.dates||[]).reduce((a,d)=>{const dt=new Date(d.date);const ok=mode==="month"?(dt.getFullYear()===sy&&dt.getMonth()===sm):(dt>=ws&&dt<=we);return ok?a+(+d.manpower||0):a;},s),0);
+  const mpL={};LINES.forEach(l=>mpL[l]=0);
+  mj.forEach(j=>(j.dates||[]).forEach(d=>{const dt=new Date(d.date);const ok=mode==="month"?(dt.getFullYear()===sy&&dt.getMonth()===sm):(dt>=ws&&dt<=we);if(ok&&j.line)mpL[j.line]=(mpL[j.line]||0)+(+d.manpower||0);}));
+  const tanks={"200L":0,"1000L":0};
+  mj.forEach(j=>{if(j.job==="5S Washing M/C"&&j.tankSize&&j.tankCount)tanks[j.tankSize]=(tanks[j.tankSize]||0)+(+j.tankCount||0);});
+  const byT={};TIMES.forEach(t=>byT[t]=0);
+  mj.forEach(j=>{if(j.timeSlot)byT[j.timeSlot]=(byT[j.timeSlot]||0)+1;});
+  const filtered=lf==="all"?mj:mj.filter(j=>j.line===lf);
+  const tabs=[{id:"overview",lb:"สรุปภาพรวม"},{id:"mp",lb:"Manpower รายวัน"},{id:"line",lb:"งานตาม Line"},{id:"tank",lb:"สรุป Tank"}];
+
+  return(
+    <div className="fade">
+      <NoticeBanner notices={notices}/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:15,color:"var(--tx)"}}>การประมวลผลงาน — {MON[sm]} {sy}</div>
+          <div style={{fontSize:11,color:"var(--tx2)"}}>Job Long Holiday Shift Management</div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>setShowNM(true)} style={{...btn("var(--sur2)","var(--tx2)","var(--bor)"),fontSize:12}}>📢 ประกาศ</button>
+          <div style={{display:"flex",background:"var(--sur2)",borderRadius:8,padding:3,border:"1.5px solid var(--bor)",gap:2}}>
+            {[["month","รายเดือน"],["week","รายสัปดาห์"]].map(([v,l])=>(
+              <button key={v} type="button" onClick={()=>setMode(v)} style={{padding:"5px 13px",borderRadius:6,border:"none",background:mode===v?"var(--acc)":"transparent",color:mode===v?"#fff":"var(--tx2)",fontWeight:mode===v?700:400,fontSize:12,cursor:"pointer"}}>{l}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(138px,1fr))",gap:10,marginBottom:18}}>
+        <SC icon="📋" lb="Total Jobs" val={mj.length} c="var(--pri)" bg="#DDEEFF"/>
+        <SC icon="👥" lb="Total Manpower" val={totalMP} c="var(--ok)" bg="var(--ok-bg)"/>
+        <SC icon="✅" lb="Approved" val={mj.length} c="var(--ok)" bg="var(--ok-bg)"/>
+        <SC icon="⏳" lb="Waiting Review" val={mp.length} c="var(--wa)" bg="var(--wa-bg)"/>
+        <SC icon="↩" lb="Returned" val={mr.length} c="var(--er)" bg="var(--er-bg)"/>
+        <SC iconEl={<DrumIcon size={30}/>} lb="Tank 200L" val={tanks["200L"]} c="#7C3AED" bg="#EDE9FE"/>
+        <SC iconEl={<IbcTankIcon size={30}/>} lb="Tank 1000L" val={tanks["1000L"]} c="var(--in)" bg="var(--in-bg)"/>
+      </div>
+
+      <Tabs tabs={tabs} cur={tab} set={setTab}/>
+      <div style={{...card,padding:"16px 18px",borderRadius:"0 var(--rl) var(--rl) var(--rl)"}}>
+        {tab==="overview"&&<>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:10}}>Jobs by Time Slot</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
+            {TIMES.map(t=>(
+              <div key={t} style={{background:"var(--sur2)",border:"1.5px solid var(--bor)",borderRadius:"var(--r)",padding:"12px",textAlign:"center"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:3}}>{t}</div>
+                <div style={{fontSize:26,fontWeight:900,color:"var(--pri)"}}>{byT[t]||0}</div>
+                <div style={{fontSize:10,color:"var(--tx3)"}}>jobs</div>
+              </div>
+            ))}
+          </div>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:10}}>รายการล่าสุด</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:460}}>
+              <thead><tr>{["งาน","Line","Shift","เวลา","Approved by"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {mj.slice(0,8).map(j=>(
+                  <tr key={j.id} onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <td style={TD}><b>{j.job==="Other"?j.jobOther:j.job}</b></td>
+                    <td style={TD}><span style={badge("var(--in-bg)","var(--acc)")}>{j.line}</span></td>
+                    <td style={TD}>{j.shift}</td><td style={TD}>{j.timeSlot}</td>
+                    <td style={TD}>{j.approvedBy&&<span style={badge("var(--ok-bg)","var(--ok)")}>{j.approvedBy}</span>}</td>
+                  </tr>
+                ))}
+                {mj.length===0&&<tr><td colSpan={5} style={{...TD,textAlign:"center",color:"var(--tx3)",padding:"24px 0"}}>ยังไม่มีข้อมูล</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>}
+        {tab==="mp"&&<>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:12}}>Manpower by Line {lf!=="all"&&<span style={badge("var(--in-bg)","var(--acc)")}>{lf}</span>}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(108px,1fr))",gap:8,marginBottom:16}}>
+            {LINES.map(l=>(
+              <div key={l} onClick={()=>setLf(lf===l?"all":l)} style={{background:lf===l?"var(--acc)":"var(--sur2)",border:`1.5px solid ${lf===l?"var(--acc)":"var(--bor)"}`,borderRadius:"var(--r)",padding:"8px 9px",cursor:"pointer",transition:"all .14s"}}>
+                <div style={{fontSize:9,fontWeight:700,color:lf===l?"rgba(255,255,255,.8)":"var(--tx2)",marginBottom:2}}>{l}</div>
+                <div style={{fontSize:20,fontWeight:900,color:lf===l?"#fff":"var(--pri)"}}>{mpL[l]||0}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:420}}>
+              <thead><tr>{["วันที่","Line","งาน","Manpower","ผู้ควบคุม"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {filtered.flatMap(j=>(j.dates||[]).map((d,i)=>({date:d.date,mp:d.manpower,job:j.job==="Other"?j.jobOther:j.job,line:j.line,sup:j.supervisorName,key:j.id+i}))).sort((a,b)=>a.date>b.date?1:-1).map(r=>(
+                  <tr key={r.key} onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <td style={TD}>{r.date}</td><td style={TD}>{r.line}</td><td style={TD}>{r.job}</td><td style={TD}><b>{r.mp}</b></td><td style={TD}>{r.sup}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>}
+        {tab==="line"&&<>
+          <div style={{display:"flex",gap:10,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontWeight:700,fontSize:13}}>งานตาม Line</span>
+            <select value={lf} onChange={e=>setLf(e.target.value)} style={{width:158}}><option value="all">ทุก Line</option>{LINES.map(l=><option key={l} value={l}>{l}</option>)}</select>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:560}}>
+              <thead><tr>{["Line","งาน","ประเภท","Shift","เวลา","วันที่","MP","สถานะ"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {filtered.map(j=>(
+                  <tr key={j.id} onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <td style={TD}><span style={badge("var(--in-bg)","var(--acc)")}>{j.line}</span></td>
+                    <td style={TD}><b>{j.job==="Other"?j.jobOther:j.job}</b></td>
+                    <td style={TD}>{j.jobType}</td><td style={TD}>{j.shift}</td><td style={TD}>{j.timeSlot}</td>
+                    <td style={{...TD,fontSize:11}}>{(j.dates||[]).map(d=>d.date).join(", ")}</td>
+                    <td style={TD}><b>{(j.dates||[]).reduce((s,d)=>s+(+d.manpower||0),0)}</b></td>
+                    <td style={TD}><span style={badge("var(--ok-bg)","var(--ok)")}>✓ {j.approvedBy}</span></td>
+                  </tr>
+                ))}
+                {filtered.length===0&&<tr><td colSpan={8} style={{...TD,textAlign:"center",color:"var(--tx3)",padding:"24px 0"}}>ไม่มีข้อมูล</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>}
+        {tab==="tank"&&<>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:12}}>สรุป Tank</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+            <div style={{...card,padding:"18px",textAlign:"center"}}>
+              <div style={{display:"flex",justifyContent:"center",marginBottom:6}}><DrumIcon size={44}/></div>
+              <div style={{fontSize:12,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>Tank 200L</div>
+              <div style={{fontSize:36,fontWeight:900,color:"#7C3AED"}}>{tanks["200L"]}</div>
+              <div style={{fontSize:11,color:"var(--tx3)"}}>ถัง</div>
+            </div>
+            <div style={{...card,padding:"18px",textAlign:"center"}}>
+              <div style={{display:"flex",justifyContent:"center",marginBottom:6}}><IbcTankIcon size={44}/></div>
+              <div style={{fontSize:12,fontWeight:700,color:"var(--tx2)",marginBottom:4}}>Tank 1000L</div>
+              <div style={{fontSize:36,fontWeight:900,color:"var(--in)"}}>{tanks["1000L"]}</div>
+              <div style={{fontSize:11,color:"var(--tx3)"}}>ถัง</div>
+            </div>
+          </div>
+        </>}
+      </div>
+      {showNM&&<NoticeManager notices={notices} setNotices={v=>{setNotices(v);ss(NK,v);}} onClose={()=>setShowNM(false)}/>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ CALENDAR ═══════════════════════════════ */
+function CalPage({jobs,sm,sy}){
+  const [csm,setCsm]=useState(sm);
+  const [csy,setCsy]=useState(sy);
+  const [selDay,setSelDay]=useState(null);
+  const firstDay=new Date(csy,csm,1).getDay();
+  const dim=new Date(csy,csm+1,0).getDate();
+  const pd=new Date(csy,csm,0).getDate();
+  const today=new Date();
+  const evMap={};
+  jobs.filter(j=>j.status==="Approved").forEach(j=>(j.dates||[]).forEach(d=>{if(!evMap[d.date])evMap[d.date]=[];evMap[d.date].push({...j,manpower:d.manpower});}));
+  const cells=[];
+  for(let i=0;i<firstDay;i++)cells.push({day:pd-firstDay+1+i,curr:false,date:""});
+  for(let d=1;d<=dim;d++)cells.push({day:d,curr:true,date:`${csy}-${pad2(csm+1)}-${pad2(d)}`});
+  while(cells.length%7!==0)cells.push({day:cells.length-firstDay-dim+1,curr:false,date:""});
+  const selEvs=selDay?evMap[selDay]||[]:[];
+  return(
+    <div className="fade">
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <button type="button" onClick={()=>{let m=csm-1,y=csy;if(m<0){m=11;y--;}setCsm(m);setCsy(y);}} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"6px 13px"}}>‹</button>
+        <div style={{flex:1,textAlign:"center",fontWeight:700,fontSize:14,color:"var(--pri)",border:"1.5px solid var(--bor)",borderRadius:"var(--r)",padding:"7px",background:"var(--sur)"}}>📅 {MON[csm]} {csy}</div>
+        <button type="button" onClick={()=>{let m=csm+1,y=csy;if(m>11){m=0;y++;}setCsm(m);setCsy(y);}} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"6px 13px"}}>›</button>
+      </div>
+      <div style={{...card,overflow:"hidden",marginBottom:selDay?12:0}}>
+        <div className="cal-grid" style={{borderLeft:"none",borderTop:"none"}}>
+          {WDAY.map(w=><div key={w} style={{padding:"7px 0",textAlign:"center",fontWeight:700,fontSize:12,color:"var(--tx2)",background:"var(--sur2)",borderRight:"1px solid var(--bor)",borderBottom:"2px solid var(--bor)"}}>{w}</div>)}
+        </div>
+        <div className="cal-grid">
+          {cells.map((c,i)=>{
+            const evs=c.date?evMap[c.date]||[]:[];
+            const isToday=c.curr&&today.getDate()===c.day&&today.getMonth()===csm&&today.getFullYear()===csy;
+            const isSel=selDay===c.date;
+            return(
+              <div key={i} className="cal-cell" onClick={()=>c.curr&&c.date&&setSelDay(isSel?null:c.date)}
+                style={{background:isSel?"var(--in-bg)":isToday?"#EBF5FB":!c.curr?"var(--sur2)":"var(--sur)",border:`${isSel?"2px solid var(--acc)":"1px solid var(--bor)"}`,cursor:c.curr?"pointer":"default"}}>
+                <div className="cal-day" style={{color:isToday?"var(--acc)":!c.curr?"var(--tx3)":"var(--tx)",fontWeight:isToday?900:700}}>{c.day}</div>
+                {evs.slice(0,2).map((ev,j)=><div key={j} className="cal-ev" style={{background:"var(--in-bg)",color:"var(--acc)"}}>{ev.job==="Other"?ev.jobOther:ev.job}</div>)}
+                {evs.length>2&&<div style={{fontSize:9,color:"var(--tx3)"}}>+{evs.length-2}</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {selDay&&(
+        <div style={{...card,padding:"14px 16px"}}>
+          <div style={{fontWeight:700,fontSize:13,color:"var(--pri)",marginBottom:10}}>📋 งานวันที่ {selDay} ({selEvs.length})</div>
+          {selEvs.length===0&&<div style={{color:"var(--tx3)",fontSize:12}}>ไม่มีงาน</div>}
+          {selEvs.map((j,i)=>(
+            <div key={i} style={{border:"1.5px solid var(--bor)",borderRadius:"var(--r)",padding:"9px 11px",marginBottom:7,background:"var(--sur2)"}}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>{j.job==="Other"?j.jobOther:j.job}</div>
+              <div style={{fontSize:12,color:"var(--tx2)",display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                <span style={badge("var(--in-bg)","var(--acc)")}>{j.line}</span>
+                <span>{j.shift}</span><span>{j.timeSlot}</span><span>👥 {j.manpower} คน</span>
+              </div>
+              {j.steps&&j.steps.length>0&&<StepTimeTable steps={j.steps}/>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ JOBS PAGE ══════════════════════════════ */
+function JobsPage({jobs,onDel,onEdit}){
+  const [exp,setExp]=useState(null);
+  const [flL,setFlL]=useState("all");
+  const [flSh,setFlSh]=useState("all");
+  const [flSt,setFlSt]=useState("all");
+  const [delMod,setDelMod]=useState(null);
+  const [delPin,setDelPin]=useState("");
+  const [delErr,setDelErr]=useState("");
+  const shown=jobs.filter(j=>{if(flL!=="all"&&j.line!==flL)return false;if(flSh!=="all"&&j.shift!==flSh)return false;if(flSt!=="all"&&j.status!==flSt)return false;return true;});
+  const dlCSV=()=>{
+    const r=["Date,Line,Job,Shift,Time,Manpower,Supervisor,Status,Approved By"];
+    jobs.forEach(j=>(j.dates||[]).forEach(d=>r.push([d.date,j.line,j.job==="Other"?j.jobOther:j.job,j.shift,j.timeSlot,d.manpower,j.supervisorName||"",j.status,j.approvedBy||""].join(","))));
+    const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(r.join("\n"));a.download="jobs.csv";a.click();
+  };
+  const confirmDel=()=>{if(delPin!==PIN){setDelErr("❌ รหัสไม่ถูกต้อง");return;}onDel(delMod);setDelMod(null);setDelPin("");setDelErr("");};
+  return(
+    <div className="fade">
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <select value={flL} onChange={e=>setFlL(e.target.value)} style={{width:142}}><option value="all">ทุก Line</option>{LINES.map(l=><option key={l} value={l}>{l}</option>)}</select>
+        <select value={flSh} onChange={e=>setFlSh(e.target.value)} style={{width:124}}><option value="all">ทุก Shift</option>{SHIFTS.map(s=><option key={s} value={s}>{s}</option>)}</select>
+        <select value={flSt} onChange={e=>setFlSt(e.target.value)} style={{width:132}}><option value="all">ทุก Status</option><option value="Approved">Approved</option><option value="Returned">Returned</option></select>
+        <button type="button" onClick={dlCSV} style={{...btn("var(--sur)","var(--tx)","var(--bor)"),marginLeft:"auto",fontSize:12}}>⬇ CSV</button>
+      </div>
+      <div style={{...card,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
+            <thead><tr>{["","งาน","Line","Shift","เวลา","วันที่","MP","สถานะ",""].map((h,i)=><th key={i} style={TH}>{h}</th>)}</tr></thead>
+            <tbody>
+              {shown.map(j=>{
+                const isX=exp===j.id;
+                const tot=(j.dates||[]).reduce((s,d)=>s+(+d.manpower||0),0);
+                const sc=j.status==="Approved"?["var(--ok-bg)","var(--ok)"]:["var(--er-bg)","var(--er)"];
+                return(
+                  <React.Fragment key={j.id}>
+                    <tr style={{background:isX?"var(--sur2)":""}} onMouseEnter={e=>{if(!isX)e.currentTarget.style.background="var(--sur2)"}} onMouseLeave={e=>{if(!isX)e.currentTarget.style.background=""}}>
+                      <td style={{...TD,width:28}}><button type="button" onClick={()=>setExp(isX?null:j.id)} style={{background:"none",border:"none",color:"var(--tx3)",fontSize:11,cursor:"pointer"}}>{isX?"▲":"▼"}</button></td>
+                      <td style={TD}><b>{j.job==="Other"?j.jobOther:j.job}</b></td>
+                      <td style={TD}><span style={badge("var(--in-bg)","var(--acc)")}>{j.line}</span></td>
+                      <td style={TD}>{j.shift}</td><td style={TD}>{j.timeSlot}</td>
+                      <td style={{...TD,fontSize:11}}>{(j.dates||[]).map(d=>d.date).join(", ")}</td>
+                      <td style={TD}><b>{tot}</b></td>
+                      <td style={TD}><span style={badge(...sc)}>{j.status==="Approved"?`✓ ${j.approvedBy||""}`:j.status}</span></td>
+                      <td style={TD}>
+                        <div style={{display:"flex",gap:4}}>
+                          <button type="button" onClick={()=>onEdit(j.id)} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"3px 9px",fontSize:12}}>✏️</button>
+                          <button type="button" onClick={()=>{setDelMod(j.id);setDelPin("");setDelErr("");}} style={{...btn("var(--er-bg)","var(--er)","#F5B7B1"),padding:"3px 9px",fontSize:12}}>🗑</button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isX&&(
+                      <tr><td colSpan={9} style={{padding:"12px 14px",background:"var(--sur2)",borderBottom:"2px solid var(--bor)"}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                          <div>
+                            <div style={{fontSize:11,fontWeight:700,color:"var(--tx2)",marginBottom:6}}>MANPOWER รายวัน</div>
+                            <table style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th style={{...TH,padding:"5px 8px"}}>วันที่</th><th style={{...TH,padding:"5px 8px"}}>MP</th></tr></thead><tbody>{(j.dates||[]).map((d,i)=><tr key={i}><td style={{...TD,padding:"5px 8px"}}>{d.date}</td><td style={{...TD,padding:"5px 8px"}}><b>{d.manpower}</b></td></tr>)}</tbody></table>
+                          </div>
+                          <div>
+                            {j.supervisorName&&<div style={{fontSize:12,color:"var(--tx2)",marginBottom:5}}>👤 <b>{j.supervisorName}</b>{j.supervisorPhone&&` (${j.supervisorPhone})`}</div>}
+                            {j.notes&&<div style={{fontSize:12,color:"var(--tx2)",marginBottom:5}}>📝 {j.notes}</div>}
+                            {j.returnRemark&&<div style={{fontSize:12,color:"var(--er)",marginBottom:5}}>↩ {j.returnRemark}</div>}
+                            {j.approvedBy&&<div style={{fontSize:11,color:"var(--ok)",marginBottom:4}}>✅ by <b>{j.approvedBy}</b> {fdt(j.approvedAt)}</div>}
+                            {j.files&&j.files.length>0&&<div style={{marginTop:5}}>{j.files.map(f=><a key={f.id} href={f.data} download={f.name} style={{display:"inline-block",marginRight:7,fontSize:11,color:"var(--acc)"}}>📎 {f.name}</a>)}</div>}
+                          </div>
+                        </div>
+                        {j.steps&&j.steps.length>0&&<div style={{marginTop:12}}><StepTimeTable steps={j.steps}/></div>}
+                      </td></tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+              {shown.length===0&&<tr><td colSpan={9} style={{...TD,textAlign:"center",color:"var(--tx3)",padding:"28px 0"}}>ไม่มีข้อมูล</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {delMod&&(
+        <Modal title="🔐 ยืนยันการลบ" onClose={()=>setDelMod(null)} w={360}>
+          <div style={{fontSize:13,color:"var(--tx)",marginBottom:12}}>ใส่รหัสเพื่อยืนยันการลบ</div>
+          <input type="password" value={delPin} onChange={e=>{setDelPin(e.target.value);setDelErr("");}} placeholder="รหัสผ่าน" style={{textAlign:"center",fontSize:18,letterSpacing:6,marginBottom:8}} onKeyDown={e=>e.key==="Enter"&&confirmDel()}/>
+          {delErr&&<div style={{color:"var(--er)",fontSize:12,marginBottom:8}}>{delErr}</div>}
+          <div style={{display:"flex",gap:8}}>
+            <button type="button" onClick={confirmDel} style={{...btn("var(--er)","#fff"),flex:1,justifyContent:"center",padding:"9px",fontWeight:700}}>🗑 ยืนยันลบ</button>
+            <button type="button" onClick={()=>setDelMod(null)} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"9px 14px"}}>ยกเลิก</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ EDIT MODAL ═════════════════════════════ */
+function EditMod({job,onSave,onClose}){
+  const [f,setF]=useState({...job});
+  const [dates,setDates]=useState([...(job.dates||[])]);
+  const [steps,setSteps]=useState([...(job.steps||[])]);
+  const sf=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <Modal title="✏️ แก้ไขรายการงาน" onClose={onClose} w={560}>
+      <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:"65vh",overflowY:"auto",paddingRight:4}}>
+        <div><label style={LBL}>Job</label>
+          <select value={f.job} onChange={e=>sf("job",e.target.value)}>{STDJOBS.map(j=><option key={j} value={j}>{j}</option>)}<option value="Other">Other</option></select>
+        </div>
+        {f.job==="Other"&&<input value={f.jobOther||""} onChange={e=>sf("jobOther",e.target.value)} placeholder="ระบุชื่องาน"/>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <div><label style={LBL}>Line</label><select value={f.line||""} onChange={e=>sf("line",e.target.value)}><option value="">เลือก</option>{LINES.map(l=><option key={l} value={l}>{l}</option>)}</select></div>
+          <div><label style={LBL}>Shift</label><select value={f.shift||""} onChange={e=>sf("shift",e.target.value)}><option value="">เลือก</option>{SHIFTS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+          <div><label style={LBL}>เวลา</label><select value={f.timeSlot||""} onChange={e=>sf("timeSlot",e.target.value)}><option value="">เลือก</option>{TIMES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+        </div>
+        <div><label style={LBL}>วันที่และ Manpower</label>
+          {dates.map((d,i)=>(
+            <div key={i} style={{display:"flex",gap:8,marginBottom:7}}>
+              <input type="date" value={d.date} onChange={e=>setDates(p=>p.map((x,j)=>j===i?{...x,date:e.target.value}:x))} style={{flex:2}}/>
+              <input type="number" value={d.manpower} onChange={e=>setDates(p=>p.map((x,j)=>j===i?{...x,manpower:e.target.value}:x))} placeholder="คน" style={{flex:1}}/>
+            </div>
+          ))}
+          <button type="button" onClick={()=>setDates(p=>[...p,{date:"",manpower:""}])} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),fontSize:11,padding:"4px 10px"}}>+ เพิ่มวัน</button>
+        </div>
+        <div><label style={LBL}>ขั้นตอนการทำงาน</label>
+          {steps.map((s,i)=>(
+            <div key={i} style={{display:"flex",gap:8,marginBottom:7,alignItems:"center"}}>
+              <input value={s.desc||""} onChange={e=>setSteps(p=>p.map((x,j)=>j===i?{...x,desc:e.target.value}:x))} placeholder="ขั้นตอน" style={{flex:3}}/>
+              <input value={s.startTime||""} onChange={e=>setSteps(p=>p.map((x,j)=>j===i?{...x,startTime:e.target.value}:x))} placeholder="เริ่ม" style={{flex:1}}/>
+              <input value={s.endTime||""} onChange={e=>setSteps(p=>p.map((x,j)=>j===i?{...x,endTime:e.target.value}:x))} placeholder="ถึง" style={{flex:1}}/>
+              <button type="button" onClick={()=>setSteps(p=>p.filter((_,j)=>j!==i))} style={{background:"var(--er-bg)",color:"var(--er)",border:"none",borderRadius:5,padding:"4px 7px",fontSize:11}}>✕</button>
+            </div>
+          ))}
+          <button type="button" onClick={()=>setSteps(p=>[...p,{desc:"",startTime:"",endTime:""}])} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),fontSize:11,padding:"4px 10px"}}>+ ขั้นตอน</button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <div><label style={LBL}>ชื่อผู้ควบคุม</label><input value={f.supervisorName||""} onChange={e=>sf("supervisorName",e.target.value)}/></div>
+          <div><label style={LBL}>เบอร์</label><input value={f.supervisorPhone||""} onChange={e=>sf("supervisorPhone",e.target.value)}/></div>
+        </div>
+        <div><label style={LBL}>หมายเหตุ</label><textarea value={f.notes||""} onChange={e=>sf("notes",e.target.value)} style={{minHeight:50,resize:"vertical"}}/></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:14}}>
+        <button type="button" onClick={()=>onSave({...f,dates,steps})} style={{...btn("var(--acc)","#fff"),flex:1,justifyContent:"center",padding:"10px",fontWeight:700}}>💾 บันทึก</button>
+        <button type="button" onClick={onClose} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"10px 15px"}}>ยกเลิก</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ═══════════════════════════════ PENDING PAGE ═══════════════════════════ */
+function PendingPage({pending,onApprove,onReturn,onDel}){
+  const [unlocked,setUnlocked]=useState(false);
+  const [pin,setPin]=useState("");
+  const [pinErr,setPinErr]=useState("");
+  const [apMod,setApMod]=useState(null);
+  const [retMod,setRetMod]=useState(null);
+  const [detMod,setDetMod]=useState(null);
+  const [apName,setApName]=useState("");
+  const [apNote,setApNote]=useState("");
+  const [retNote,setRetNote]=useState("");
+  useEffect(()=>{if(!unlocked)return;const t=setInterval(()=>{},3000);return()=>clearInterval(t);},[unlocked]);
+  const tryPin=()=>{if(pin===PIN){setUnlocked(true);setPinErr("");}else setPinErr("❌ รหัสไม่ถูกต้อง");};
+  if(!unlocked)return(
+    <div className="fade" style={{display:"flex",justifyContent:"center",paddingTop:60}}>
+      <div style={{...card,padding:"36px 40px",width:370,textAlign:"center"}}>
+        <div style={{fontSize:42,marginBottom:10}}>🔐</div>
+        <div style={{fontWeight:700,fontSize:17,color:"var(--pri)",marginBottom:5}}>Pending Approval</div>
+        <div style={{fontSize:13,color:"var(--tx2)",marginBottom:20}}>ใส่รหัสผ่านเพื่อเข้าถึง</div>
+        <input type="password" value={pin} onChange={e=>{setPin(e.target.value);setPinErr("");}} placeholder="รหัสผ่าน" onKeyDown={e=>e.key==="Enter"&&tryPin()} style={{textAlign:"center",fontSize:20,letterSpacing:8,marginBottom:10}}/>
+        {pinErr&&<div style={{color:"var(--er)",fontSize:13,marginBottom:8}}>{pinErr}</div>}
+        <button type="button" onClick={tryPin} style={{...btn("var(--acc)","#fff"),width:"100%",justifyContent:"center",padding:"11px",fontSize:14,fontWeight:700}}>เข้าสู่ระบบ →</button>
+      </div>
+    </div>
+  );
+  return(
+    <div className="fade">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div><div style={{fontWeight:700,fontSize:16}}>Pending Approval ({pending.length})</div><div style={{fontSize:11,color:"var(--tx3)"}}>🔄 อัพเดทอัตโนมัติ</div></div>
+        <button type="button" onClick={()=>{setUnlocked(false);setPin("");}} style={{...btn("var(--sur2)","var(--tx2)","var(--bor)"),fontSize:12}}>🔒 ล็อก</button>
+      </div>
+      {pending.length===0&&<div style={{...card,padding:"36px",textAlign:"center",color:"var(--tx3)"}}><div style={{fontSize:34,marginBottom:8}}>✅</div>ไม่มีรายการรอ Approve</div>}
+      {pending.map(j=>(
+        <div key={j.id} style={{...card,padding:"15px 18px",marginBottom:10,borderLeft:"4px solid #F59E0B"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{j.job==="Other"?j.jobOther:j.job}</div>
+              <div style={{fontSize:12,color:"var(--tx2)",display:"flex",gap:10,flexWrap:"wrap",marginBottom:6}}>
+                <span>📍 {j.line}</span><span>🔄 {j.shift}</span><span>⏰ {j.timeSlot}</span>{j.supervisorName&&<span>👤 {j.supervisorName}</span>}
+              </div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>
+                {(j.dates||[]).map((d,i)=><span key={i} style={badge("var(--sur2)","var(--tx2)")}>{d.date} · {d.manpower} คน</span>)}
+              </div>
+              <span style={badge("var(--wa-bg)","var(--wa)")}>⏳ Waiting Review</span>
+              <span style={{fontSize:10,color:"var(--tx3)",marginLeft:8}}>{fdt(j.createdAt)}</span>
+              {j.editedAt&&<span style={{fontSize:10,color:"var(--in)",marginLeft:8}}>✏️ {fdt(j.editedAt)}</span>}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6,minWidth:128,alignItems:"stretch"}}>
+              <button type="button" onClick={()=>setDetMod(j)} style={{...btn("var(--in-bg)","var(--in)","#B3D9F5"),justifyContent:"center",fontSize:12,padding:"7px"}}>🔍 รายละเอียด</button>
+              <button type="button" onClick={()=>{setApMod({id:j.id});setApName("");setApNote("");}} style={{...btn("var(--ok-bg)","var(--ok)","#A9DFBF"),justifyContent:"center",padding:"7px"}}>✅ Approve</button>
+              <button type="button" onClick={()=>{setRetMod({id:j.id});setRetNote("");}} style={{...btn("var(--er-bg)","var(--er)","#F5B7B1"),justifyContent:"center",padding:"7px"}}>↩ Return</button>
+              <button type="button" onClick={()=>onDel(j.id)} style={{...btn("var(--sur2)","var(--tx2)","var(--bor)"),justifyContent:"center",padding:"7px",fontSize:12}}>🗑 ลบ</button>
+            </div>
+          </div>
+        </div>
+      ))}
+      {detMod&&<JobDetailModal job={detMod} onClose={()=>setDetMod(null)}/>}
+      {apMod&&(
+        <Modal title="✅ ยืนยัน Approve" onClose={()=>setApMod(null)}>
+          <div style={{marginBottom:11}}><label style={LBL}>ชื่อผู้ Approve *</label><input value={apName} onChange={e=>setApName(e.target.value)} placeholder="ใส่ชื่อ"/></div>
+          <div style={{marginBottom:12}}><label style={LBL}>หมายเหตุ</label><textarea value={apNote} onChange={e=>setApNote(e.target.value)} placeholder="หมายเหตุ..." style={{minHeight:50,resize:"vertical"}}/></div>
+          <div style={{background:"var(--in-bg)",borderRadius:"var(--r)",padding:"7px 11px",fontSize:12,color:"var(--in)",marginBottom:12}}>⏰ {fdt(new Date().toISOString())}</div>
+          <div style={{display:"flex",gap:8}}>
+            <button type="button" onClick={()=>{if(!apName.trim()){alert("ใส่ชื่อก่อน");return;}onApprove(apMod.id,apName.trim(),apNote);setApMod(null);}} style={{...btn("var(--acc)","#fff"),flex:1,justifyContent:"center",padding:"10px",fontWeight:700}}>✅ ยืนยัน</button>
+            <button type="button" onClick={()=>setApMod(null)} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"10px 14px"}}>ยกเลิก</button>
+          </div>
+        </Modal>
+      )}
+      {retMod&&(
+        <Modal title="↩ Return งาน" onClose={()=>setRetMod(null)}>
+          <div style={{marginBottom:6}}><label style={LBL}>เหตุผล *</label><textarea value={retNote} onChange={e=>setRetNote(e.target.value)} placeholder="ระบุเหตุผล..." style={{minHeight:80,resize:"vertical"}}/></div>
+          <div style={{fontSize:12,color:"var(--tx2)",marginBottom:12}}>งานจะถูก Return และแสดง Remark ให้ผู้ส่ง</div>
+          <div style={{display:"flex",gap:8}}>
+            <button type="button" onClick={()=>{if(!retNote.trim()){alert("ใส่เหตุผลก่อน");return;}onReturn(retMod.id,retNote.trim());setRetMod(null);}} style={{...btn("var(--er-bg)","var(--er)","#F5B7B1"),flex:1,justifyContent:"center",padding:"10px",fontWeight:700}}>↩ ยืนยัน</button>
+            <button type="button" onClick={()=>setRetMod(null)} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),padding:"10px 14px"}}>ยกเลิก</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ LOGS PAGE ══════════════════════════════ */
+function LogsPage({logs,setLogs}){
+  const [unlocked,setUnlocked]=useState(false);
+  const [pin,setPin]=useState("");
+  const [pinErr,setPinErr]=useState("");
+  const [clrConf,setClrConf]=useState(false);
+  const tryPin=()=>{if(pin===PIN){setUnlocked(true);setPinErr("");}else setPinErr("❌ รหัสไม่ถูกต้อง");};
+  if(!unlocked)return(
+    <div className="fade" style={{display:"flex",justifyContent:"center",paddingTop:60}}>
+      <div style={{...card,padding:"36px 40px",width:370,textAlign:"center"}}>
+        <div style={{fontSize:42,marginBottom:10}}>🔐</div>
+        <div style={{fontWeight:700,fontSize:17,color:"var(--pri)",marginBottom:5}}>Activity Logs</div>
+        <div style={{fontSize:13,color:"var(--tx2)",marginBottom:20}}>ใส่รหัสผ่านเพื่อดู Logs</div>
+        <input type="password" value={pin} onChange={e=>{setPin(e.target.value);setPinErr("");}} onKeyDown={e=>e.key==="Enter"&&tryPin()} style={{textAlign:"center",fontSize:20,letterSpacing:8,marginBottom:10}}/>
+        {pinErr&&<div style={{color:"var(--er)",fontSize:13,marginBottom:8}}>{pinErr}</div>}
+        <button type="button" onClick={tryPin} style={{...btn("var(--acc)","#fff"),width:"100%",justifyContent:"center",padding:"11px",fontSize:14,fontWeight:700}}>เข้าสู่ระบบ →</button>
+      </div>
+    </div>
+  );
+  return(
+    <div className="fade">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{fontWeight:700,fontSize:16}}>Activity Logs ({logs.length})</div>
+        <div style={{display:"flex",gap:7}}>
+          <button type="button" onClick={()=>setClrConf(true)} style={{...btn("var(--er-bg)","var(--er)","#F5B7B1"),fontSize:12}}>🗑 Clear Logs</button>
+          <button type="button" onClick={()=>{setUnlocked(false);setPin("");}} style={{...btn("var(--sur2)","var(--tx2)","var(--bor)"),fontSize:12}}>🔒 ล็อก</button>
+        </div>
+      </div>
+      <div style={{...card,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:380}}>
+            <thead><tr>{["เวลา","Action","รายละเอียด"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+            <tbody>
+              {logs.slice(0,100).map(l=>{
+                const isA=l.action.includes("Approve");const isR=l.action.includes("Return");
+                const bc=isA?["var(--ok-bg)","var(--ok)"]:isR?["var(--er-bg)","var(--er)"]:["var(--sur2)","var(--tx2)"];
+                return(
+                  <tr key={l.id} onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                    <td style={{...TD,whiteSpace:"nowrap",fontSize:11,color:"var(--tx2)"}}>{fdt(l.ts)}</td>
+                    <td style={TD}><span style={badge(...bc)}>{l.action}</span></td>
+                    <td style={{...TD,color:"var(--tx2)",fontSize:12}}>{l.detail}</td>
+                  </tr>
+                );
+              })}
+              {logs.length===0&&<tr><td colSpan={3} style={{...TD,textAlign:"center",color:"var(--tx3)",padding:"26px 0"}}>ยังไม่มี Activity</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {clrConf&&(
+        <Modal title="⚠️ ล้าง Logs" onClose={()=>setClrConf(false)} w={350}>
+          <p style={{fontSize:14,marginBottom:16}}>ต้องการล้าง Activity Logs ทั้งหมด?</p>
+          <div style={{display:"flex",gap:8}}>
+            <button type="button" onClick={()=>{setLogs([]);ss(LK,[]);setClrConf(false);}} style={{...btn("var(--er)","#fff"),flex:1,justifyContent:"center",padding:"9px",fontWeight:700}}>Yes</button>
+            <button type="button" onClick={()=>setClrConf(false)} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),flex:1,justifyContent:"center",padding:"9px"}}>No</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════ SAVE / LOAD DATA ═══════════════════════ */
+function DataManager({jobs,pending,logs,onLoad,onClose}){
+  const fRef=useRef();
+  const saveAll=()=>{
+    const payload={jobs,pending,logs,savedAt:new Date().toISOString(),version:"jlh8"};
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`jlh-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();
+  };
+  const loadFile=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const d=JSON.parse(ev.target.result);
+        if(d.version&&d.version.startsWith("jlh")){onLoad(d);onClose();}
+        else alert("ไฟล์ไม่ถูกต้อง");
+      }catch{alert("ไฟล์ไม่ถูกต้อง");}
+    };
+    r.readAsText(f);
+    e.target.value="";
+  };
+  return(
+    <Modal title="💾 บันทึก / โหลดข้อมูล" onClose={onClose} w={400}>
+      <div style={{marginBottom:18}}>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>ดาวน์โหลดข้อมูลสำรอง</div>
+        <div style={{fontSize:12,color:"var(--tx2)",marginBottom:10}}>บันทึกข้อมูลทั้งหมดเป็นไฟล์ .json เก็บไว้ในเครื่อง สามารถนำมาอัพโหลดคืนได้</div>
+        <button type="button" onClick={saveAll} style={{...btn("var(--acc)","#fff"),width:"100%",justifyContent:"center",padding:"10px",fontWeight:700}}>⬇ ดาวน์โหลดข้อมูล (.json)</button>
+      </div>
+      <div style={{borderTop:"1.5px solid var(--bor)",paddingTop:16}}>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>อัพโหลดข้อมูลสำรอง</div>
+        <div style={{fontSize:12,color:"var(--tx2)",marginBottom:10}}>เลือกไฟล์ .json ที่ดาวน์โหลดไว้ก่อนหน้า เพื่อโหลดข้อมูลคืน (จะแทนที่ข้อมูลปัจจุบัน)</div>
+        <input type="file" ref={fRef} accept=".json" onChange={loadFile} style={{display:"none"}}/>
+        <button type="button" onClick={()=>fRef.current.click()} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),width:"100%",justifyContent:"center",padding:"10px"}}>📂 เลือกไฟล์สำรอง (.json)</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ═══════════════════════════════ APP ROOT ═══════════════════════════════ */
+function App(){
+  const [dark,setDark]=useState(false);
+  const [page,setPage]=useState("dash");
+  const [col,setCol]=useState(false);
+  const [jobs,setJobs]=useState(()=>ls(SK,[]));
+  const [pending,setPending]=useState(()=>ls(PK,[]));
+  const [logs,setLogs]=useState(()=>ls(LK,[]));
+  const [notices,setNotices]=useState(()=>ls(NK,[]));
+  const [sm,setSm]=useState(new Date().getMonth());
+  const [sy,setSy]=useState(new Date().getFullYear());
+  const [toast,setToast]=useState("");
+  const [editId,setEditId]=useState(null);
+  const [clearConf,setClearConf]=useState(false);
+  const [resubId,setResubId]=useState(null);
+  const [showDM,setShowDM]=useState(false);
+
+  useEffect(()=>{if(dark)document.documentElement.setAttribute("data-dark","");else document.documentElement.removeAttribute("data-dark");},[dark]);
+  useEffect(()=>{ss(SK,jobs)},[jobs]);
+  useEffect(()=>{ss(PK,pending)},[pending]);
+
+  const notify=msg=>{setToast(msg);setTimeout(()=>setToast(""),2800);};
+  const log=(a,d)=>setLogs(p=>{const n=[{id:gid(),ts:new Date().toISOString(),action:a,detail:d},...p].slice(0,200);ss(LK,n);return n;});
+
+  const inMonth=j=>j.dates&&j.dates.some(d=>{const dt=new Date(d.date);return dt.getFullYear()===sy&&dt.getMonth()===sm});
+  const displayJobs=jobs.filter(inMonth);
+
+  const handleAdd=data=>{
+    const e={...data,id:gid(),status:"Waiting Review",createdAt:new Date().toISOString()};
+    setPending(p=>[...p,e]);
+    log("Add Job",`${data.job==="Other"?data.jobOther:data.job} / ${data.line}`);
+    notify("✅ ส่งคำขอเรียบร้อย — รอการ Approve");
+    setPage("dash");
+  };
+
+  const handleResubmit=(origId,data)=>{
+    const wasPending=pending.find(j=>j.id===origId);
+    if(wasPending){
+      setPending(p=>p.map(j=>j.id===origId?{...j,...data,editedAt:new Date().toISOString(),status:"Waiting Review"}:j));
+    } else {
+      setJobs(p=>p.filter(j=>j.id!==origId));
+      setPending(p=>[...p,{...data,id:gid(),status:"Waiting Review",createdAt:new Date().toISOString()}]);
+    }
+    log("Resubmit",`${data.job==="Other"?data.jobOther:data.job} / ${data.line}`);
+    notify("✏️ แก้ไขและส่งขอ Approve ใหม่แล้ว");
+    setResubId(null);setPage("add");
+  };
+
+  const handleApprove=(id,name,remark)=>{
+    const job=pending.find(j=>j.id===id);if(!job)return;
+    setJobs(p=>[...p,{...job,status:"Approved",approvedBy:name,approvedAt:new Date().toISOString(),approveRemark:remark}]);
+    setPending(p=>p.filter(j=>j.id!==id));
+    log("Approve",`${job.job==="Other"?job.jobOther:job.job} — by ${name}`);
+    notify(`✅ Approved by ${name}`);
+  };
+
+  const handleReturn=(id,remark)=>{
+    const job=pending.find(j=>j.id===id);if(!job)return;
+    setJobs(p=>[...p,{...job,status:"Returned",returnedAt:new Date().toISOString(),returnRemark:remark}]);
+    setPending(p=>p.filter(j=>j.id!==id));
+    log("Return",`${job.job==="Other"?job.jobOther:job.job} — ${remark}`);
+    notify("↩ Return งานเรียบร้อย");
+  };
+
+  const handleDel=id=>{setJobs(p=>p.filter(j=>j.id!==id));log("Delete",id);notify("🗑 ลบเรียบร้อย");};
+  const handleEdit=(id,upd)=>{setJobs(p=>p.map(j=>j.id===id?{...j,...upd}:j));setEditId(null);log("Edit",id);notify("✏️ แก้ไขเรียบร้อย");};
+  const handleClear=()=>{setJobs([]);setPending([]);ss(SK,[]);ss(PK,[]);setClearConf(false);log("Clear All","");notify("🗑 ล้างข้อมูล");};
+  const handleLoad=d=>{
+    if(d.jobs){setJobs(d.jobs);ss(SK,d.jobs);}
+    if(d.pending){setPending(d.pending);ss(PK,d.pending);}
+    if(d.logs){setLogs(d.logs);ss(LK,d.logs);}
+    notify("📂 โหลดข้อมูลเรียบร้อย");
+  };
+
+  const resubSrc=resubId?[...pending,...jobs.filter(j=>j.status==="Returned")].find(j=>j.id===resubId):null;
+  const sw=col?62:220;
+
+  return(
+    <div style={{minHeight:"100vh",background:"var(--bg)"}}>
+      <Sidebar page={page} setPage={p=>{setPage(p);if(p!=="add")setResubId(null);}} pCount={pending.length} col={col} setCol={setCol}/>
+      <Topbar page={page} dark={dark} setDark={setDark} sw={sw} sm={sm} setSm={setSm} sy={sy} setSy={setSy}/>
+
+      <div style={{marginLeft:sw,paddingTop:56,minHeight:"100vh",transition:"margin .2s"}}>
+        <div style={{padding:"18px 22px",maxWidth:1200,margin:"0 auto"}}>
+
+          {/* Save/Load button fixed bottom-right */}
+          <div style={{position:"fixed",bottom:18,right:20,zIndex:150}}>
+            <button type="button" onClick={()=>setShowDM(true)} style={{...btn("var(--pri)","#fff"),boxShadow:"0 4px 14px rgba(21,101,192,.4)",fontWeight:700,padding:"9px 16px"}}>💾 บันทึก/โหลด</button>
+          </div>
+
+          {page==="dash"&&<DashPage jobs={jobs} pending={pending} sm={sm} sy={sy} notices={notices} setNotices={v=>{setNotices(v);ss(NK,v);}} onEditPending={id=>{setResubId(id);setPage("add");}}/>}
+
+          {page==="add"&&(resubSrc?(
+            <AddJobPage
+              key={resubId}
+              initialData={resubSrc}
+              onAdd={data=>handleResubmit(resubId,data)}
+              onCancel={()=>{setResubId(null);}}
+              pending={pending}
+              jobs={jobs}
+              onEditPending={id=>setResubId(id)}
+            />
+          ):(
+            <AddJobPage
+              key="new"
+              onAdd={handleAdd}
+              pending={pending}
+              jobs={jobs}
+              onEditPending={id=>{setResubId(id);}}
+            />
+          ))}
+
+          {page==="cal"&&<CalPage jobs={jobs} sm={sm} sy={sy}/>}
+
+          {page==="jobs"&&<>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
+              <button type="button" onClick={()=>setClearConf(true)} style={{...btn("var(--er-bg)","var(--er)","#F5B7B1"),fontSize:12}}>🗑 Clear All</button>
+            </div>
+            <JobsPage jobs={displayJobs} onDel={handleDel} onEdit={id=>setEditId(id)}/>
+          </>}
+
+          {page==="pend"&&<PendingPage pending={pending} onApprove={handleApprove} onReturn={handleReturn} onDel={id=>{setPending(p=>p.filter(j=>j.id!==id));log("Delete Pending",id);notify("ลบเรียบร้อย");}}/>}
+
+          {page==="logs"&&<LogsPage logs={logs} setLogs={v=>{setLogs(v);ss(LK,v);}}/>}
+        </div>
+      </div>
+
+      <Toast msg={toast}/>
+
+      {editId&&<EditMod job={jobs.find(j=>j.id===editId)} onSave={u=>handleEdit(editId,u)} onClose={()=>setEditId(null)}/>}
+
+      {clearConf&&(
+        <Modal title="⚠️ ล้างข้อมูลทั้งหมด" onClose={()=>setClearConf(false)} w={360}>
+          <p style={{fontSize:14,marginBottom:16}}>ต้องการล้างข้อมูลทั้งหมดใช่หรือไม่? ไม่สามารถกู้คืนได้</p>
+          <div style={{display:"flex",gap:8}}>
+            <button type="button" onClick={handleClear} style={{...btn("var(--er)","#fff"),flex:1,justifyContent:"center",padding:"10px",fontWeight:700}}>Yes</button>
+            <button type="button" onClick={()=>setClearConf(false)} style={{...btn("var(--sur2)","var(--tx)","var(--bor)"),flex:1,justifyContent:"center",padding:"10px"}}>No</button>
+          </div>
+        </Modal>
+      )}
+
+      {showDM&&<DataManager jobs={jobs} pending={pending} logs={logs} onLoad={handleLoad} onClose={()=>setShowDM(false)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
